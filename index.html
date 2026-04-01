@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Simulación: El Plano Inclinado Pro</title>
+    <style>
+        :root { --primary: #2c3e50; --accent: #3498db; --bg: #f4f7f6; --fext-color: #ff6600; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; display: flex; height: 100vh; overflow: hidden; }
+        
+        .config-panel { width: 250px; padding: 20px; background: white; border-right: 2px solid #ddd; display: flex; flex-direction: column; gap: 8px; z-index: 10; }
+        .config-panel h3 { font-size: 1rem; margin-bottom: 10px; border-bottom: 2px solid var(--accent); }
+        .config-panel label { font-size: 0.85rem; font-weight: bold; display: flex; justify-content: space-between; margin-top: 5px; }
+        .val-display { color: var(--accent); font-family: monospace; }
+        .config-panel input, .config-panel select { width: 95%; padding: 4px; border: 1px solid #ccc; border-radius: 4px; }
+        .config-panel input[type="range"] { cursor: pointer; margin-bottom: 10px; }
+        
+        .canvas-container { flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
+        canvas { background: #fff; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-height: 90vh; }
+        .main-title { margin-bottom: 20px; font-size: 1.8rem; font-weight: 900; color: var(--primary); letter-spacing: 2px; }
+        #stepDisplay { position: absolute; top: 70px; background: var(--primary); color: white; padding: 8px 20px; border-radius: 20px; font-weight: bold; font-size: 0.9rem; z-index: 5; }
+        
+        .info-panel { width: 380px; padding: 20px; background: white; border-left: 2px solid #ddd; overflow-y: auto; }
+        .step-card { background: #f9f9f9; padding: 12px; border-radius: 8px; margin-bottom: 12px; border-left: 5px solid #ccc; display: none; font-size: 0.85rem; line-height: 1.6; }
+        .step-card.active { display: block; border-left-color: var(--accent); animation: slideIn 0.4s ease-out; }
+        
+        .vector-text { position: relative; display: inline-block; margin-top: 6px; font-weight: bold; padding-right: 2px; }
+        .vector-text::before { content: '→'; position: absolute; top: -6px; left: 0; width: 100%; text-align: left; font-size: 0.85em; }
+        
+        .sub { font-size: 0.75em; vertical-align: sub; }
+        .calc-res { color: #c0392b; font-weight: bold; }
+        .formula { font-family: 'Courier New', monospace; font-weight: bold; background: #eee; padding: 6px; display: block; margin: 4px 0; border-radius: 3px; color: #2c3e50; line-height: 1.5; }
+
+        button { padding: 12px; cursor: pointer; border: none; border-radius: 4px; font-weight: bold; color: white; transition: 0.3s; }
+        #btnAction { background: #27ae60; margin-top: 15px; }
+        #btnReset { background: #e74c3c; margin-top: 10px; }
+
+        /* --- ESTILO LICENCIA --- */
+        .licencia-bloque { 
+            position: absolute; bottom: 15px; left: 50%; transform: translateX(-50%);
+            color: #555; font-size: 11px; text-align: center; z-index: 100; width: 100%;
+        }
+        .licencia-bloque a { color: #2980b9; text-decoration: none; font-weight: bold; }
+        .licencia-bloque a:hover { text-decoration: underline; }
+        
+        @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+    </style>
+</head>
+<body>
+    <div class="config-panel">
+        <h3>Configuración</h3>
+        <label>Ángulo α: <span id="vAngleDisplay" class="val-display">30.0</span>°</label>
+        <input type="range" id="valAngle" min="0" max="75" step="0.1" value="30" oninput="updateValues()">
+        
+        <label>Masa m: <span id="vMassDisplay" class="val-display">5.0</span> kg</label>
+        <input type="range" id="valMass" min="0.1" max="10" step="0.1" value="5" oninput="updateValues()">
+        
+        <label>Coef. μ: <span id="vMuDisplay" class="val-display">0.30</span></label>
+        <input type="range" id="valMu" min="0" max="1" step="0.01" value="0.30" oninput="updateValues()">
+        
+        <label>Fuerza F: <span id="vFextDisplay" class="val-display">0.0</span> N</label>
+        <input type="range" id="valFext" min="0" max="100" step="1" value="0" oninput="updateValues()">
+        
+        <label>Dirección F</label>
+        <select id="valDirF" onchange="updateValues()">
+            <option value="down">Hacia abajo (descendente)</option>
+            <option value="up">Hacia arriba (ascendente)</option>
+        </select>
+
+        <button id="btnAction" onclick="handleStep()">Paso 1: Introducir datos</button>
+        <button id="btnReset" onclick="resetSim()">Reiniciar</button>
+    </div>
+
+    <div class="canvas-container">
+        <div class="main-title">EL PLANO INCLINADO</div>
+        <div id="stepDisplay">Paso 0: Preparación</div>
+        <canvas id="sim" width="750" height="650"></canvas>
+        
+        <div class="licencia-bloque">
+            <p>Author: <strong>EAG1964</strong> | 2026 | <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.es" target="_blank">License CC BY-NC-SA 4.0</a></p>
+        </div>
+    </div>
+
+    <div class="info-panel">
+        <h3>Análisis Dinámico</h3>
+        <div id="s1" class="step-card">
+            <b>1. Datos iniciales:</b><br>
+            α = <span id="dataAngle">0</span>° ; m = <span id="dataMass">0</span> kg ; μ = <span id="dataMu">0</span> ; F = <span id="dataFext">0</span> N (<span id="dataDirF">--</span>)
+        </div>
+        <div id="s2" class="step-card"><b>2. Sistema de Referencia:</b><br>Ejes centrados en el CM. X paralelo al plano, Y perpendicular.</div>
+        <div id="s3" class="step-card">
+            <b>3. Representación del Peso:</b><br>
+            <span class="vector-text">P</span> actúa verticalmente hacia abajo ; P = m • g = <span class="calc-res" id="resP">0</span> N
+        </div>
+        <div id="s4" class="step-card">
+            <b>4. Descomponer el Peso:</b><br>
+            El ángulo α se traslada entre el eje -Y y <span class="vector-text">P</span>.<br>
+            <span class="vector-text">P<span class="sub">x</span></span> = <span class="vector-text">P</span> • sen(α) ; P<span class="sub">x</span> = <span class="calc-res" id="resPx">0</span> N<br>
+            <span class="vector-text">P<span class="sub">y</span></span> = <span class="vector-text">P</span> • cos(α) ; P<span class="sub">y</span> = <span class="calc-res" id="resPy">0</span> N
+        </div>
+        <div id="s5" class="step-card">
+            <b>5. Representar la Normal:</b><br>
+            <span class="vector-text">N</span> reacción del plano ; N = P<span class="sub">y</span> = <span class="calc-res" id="resN">0</span> N
+        </div>
+        <div id="s6" class="step-card">
+            <b>6. Fuerza Aplicada:</b><br>
+            <span class="vector-text">F</span> externa en dirección <span id="resDirText">--</span> ; F = <span class="calc-res" id="resFval" style="color:var(--fext-color)">0</span> N
+        </div>
+        <div id="s7" class="step-card">
+            <b>7. Fuerza de Rozamiento:</b><br>
+            <span class="vector-text">F<span class="sub">r</span></span> se opone al movimiento ; F<span class="sub">r</span> = μ • N = <span class="calc-res" id="resFr">0</span> N
+        </div>
+        <div id="s8" class="step-card">
+            <b>8. Análisis de Fuerzas:</b><br>
+            <b>Eje Y:</b> Σ<span class="vector-text">F<span class="sub">y</span></span> = m • <span class="vector-text">a<span class="sub">y</span></span>
+            <span class="formula">N - P<span class="sub">y</span> = 0 → N = P<span class="sub">y</span></span>
+            
+            <b>Eje X:</b> Σ<span class="vector-text">F<span class="sub">x</span></span> = m • <span class="vector-text">a<span class="sub">x</span></span>
+            <span class="formula" id="formulaX">F + P<span class="sub">x</span> - F<sub>r</sub> = m • a<sub>x</sub></span>
+            
+            Fuerza Neta: <span class="calc-res" id="resFNet">0</span> N<br>
+            Aceleración a<sub>x</sub>: <span class="calc-res" id="resAccel" style="color:#27ae60">0</span> m/s²
+        </div>
+        <div id="s9" class="step-card">
+            <b>9. Resultado del Movimiento:</b><br>
+            <span id="resMovimiento">Calculando resultado...</span>
+        </div>
+    </div>
+
+<script>
+    const canvas = document.getElementById('sim');
+    const ctx = canvas.getContext('2d');
+    let step = 1;
+    const g = 9.81; const SCALE = 4;
+    const ORANGE_BRIGHT = "#ff6600";
+    
+    let animationId;
+    let offsetAnim = 0;
+    let velocity = 0;
+    let accelValue = 0;
+
+    function updateValues() {
+        if(animationId) cancelAnimationFrame(animationId);
+        offsetAnim = 0;
+        velocity = 0;
+        document.getElementById('vAngleDisplay').innerText = parseFloat(document.getElementById('valAngle').value).toFixed(1);
+        document.getElementById('vMassDisplay').innerText = parseFloat(document.getElementById('valMass').value).toFixed(1);
+        document.getElementById('vMuDisplay').innerText = parseFloat(document.getElementById('valMu').value).toFixed(2);
+        document.getElementById('vFextDisplay').innerText = parseFloat(document.getElementById('valFext').value).toFixed(1);
+        draw();
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const angDeg = parseFloat(document.getElementById('valAngle').value);
+        const mass = parseFloat(document.getElementById('valMass').value);
+        const mu = parseFloat(document.getElementById('valMu').value);
+        const fextVal = parseFloat(document.getElementById('valFext').value);
+        const fextDir = document.getElementById('valDirF').value;
+        const alpha = angDeg * Math.PI / 180;
+        
+        const PValue = mass * g;
+        const PxValue = PValue * Math.sin(alpha);
+        const PyValue = PValue * Math.cos(alpha);
+        const NValue = PyValue;
+
+        const force_ext_x = (fextDir === 'down' ? fextVal : -fextVal);
+        const tendency_x = PxValue + force_ext_x;
+        const FrMax = mu * NValue;
+        
+        let FrActual = 0;
+        let FNetX = 0;
+
+        if (Math.abs(tendency_x) > FrMax) {
+            FrActual = FrMax * (tendency_x > 0 ? -1 : 1);
+            FNetX = tendency_x + FrActual;
+        } else {
+            FrActual = -tendency_x;
+            FNetX = 0;
+        }
+
+        accelValue = FNetX / mass;
+        const aAbs = Math.abs(accelValue).toFixed(2);
+
+        // --- PASO 8: FÓRMULA DINÁMICA ---
+        let textoFormula = "";
+        if (Math.abs(FNetX) < 0.01) {
+            textoFormula = "ΣF<sub>x</sub> = 0 → Equilibrio (a<sub>x</sub> = 0)";
+        } else if (fextDir === 'down') {
+            textoFormula = "F + P<sub>x</sub> - F<sub>r</sub> = m • a<sub>x</sub>";
+        } else {
+            if (fextVal > (PxValue + FrMax)) {
+                textoFormula = "F - P<sub>x</sub> - F<sub>r</sub> = m • a<sub>x</sub>";
+            } else if (PxValue > (fextVal + FrMax)) {
+                textoFormula = "P<sub>x</sub> - F - F<sub>r</sub> = m • a<sub>x</sub>";
+            } else {
+                textoFormula = "ΣF<sub>x</sub> = 0 → Equilibrio (a<sub>x</sub> = 0)";
+            }
+        }
+
+        // --- PASO 9: MENSAJE DINÁMICO ---
+        let mensaje9 = "";
+        if (Math.abs(FNetX) < 0.01) {
+            mensaje9 = "El sistema se encuentra en <b>EQUILIBRIO</b> (a = 0).";
+        } else if (FNetX > 0) {
+            mensaje9 = "Desplazamiento hacia <b>ABAJO</b> con a = " + aAbs + " m/s²";
+        } else {
+            mensaje9 = "Desplazamiento hacia <b>ARRIBA</b> con a = " + aAbs + " m/s²";
+        }
+
+        document.getElementById('formulaX').innerHTML = textoFormula;
+        document.getElementById('resMovimiento').innerHTML = mensaje9;
+        document.getElementById('resP').innerText = PValue.toFixed(2);
+        document.getElementById('resPx').innerText = PxValue.toFixed(2);
+        document.getElementById('resPy').innerText = PyValue.toFixed(2);
+        document.getElementById('resN').innerText = NValue.toFixed(2);
+        document.getElementById('resFval').innerText = fextVal.toFixed(2);
+        document.getElementById('resFr').innerText = Math.abs(FrActual).toFixed(2);
+        document.getElementById('resFNet').innerText = Math.abs(FNetX).toFixed(2);
+        document.getElementById('resAccel').innerText = aAbs;
+        document.getElementById('resDirText').innerText = fextDir === 'down' ? 'descendente' : 'ascendente';
+
+        const groundHeight = 160; 
+        const gY = canvas.height - groundHeight; 
+        const sX = 650, len = 520, eX = sX - len * Math.cos(alpha), eY = gY - len * Math.sin(alpha);
+        
+        ctx.fillStyle = "#95a5a6"; ctx.fillRect(0, gY, canvas.width, groundHeight);
+        ctx.beginPath(); ctx.moveTo(sX, gY); ctx.lineTo(eX, eY); ctx.lineTo(eX, gY); ctx.closePath();
+        ctx.fillStyle = "#f1c40f"; ctx.globalAlpha = 0.15; ctx.fill(); ctx.globalAlpha = 1;
+        ctx.strokeStyle = "#000"; ctx.lineWidth = 1.5; ctx.stroke();
+
+        if(angDeg > 0) {
+            const arcR = 60;
+            ctx.beginPath();
+            ctx.strokeStyle = "#e67e22"; ctx.lineWidth = 2;
+            ctx.arc(sX, gY, arcR, Math.PI, Math.PI + alpha);
+            ctx.stroke();
+            const textAngleBase = Math.PI + (alpha/2);
+            ctx.fillStyle = "#e67e22"; ctx.font = "bold 20px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText("α", sX + (arcR + 25) * Math.cos(textAngleBase), gY + (arcR + 25) * Math.sin(textAngleBase));
+        }
+
+        ctx.save();
+        ctx.translate(eX, eY); ctx.rotate(alpha);
+        const bW = 80, bH = 60, bDist = 80 + offsetAnim, cx = bDist + bW/2, cy = -bH/2;
+        ctx.fillStyle = "#E0FFFF"; ctx.fillRect(bDist, -bH, bW, bH);
+        ctx.strokeRect(bDist, -bH, bW, bH);
+        ctx.fillStyle = "black"; ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI*2); ctx.fill();
+
+        if (step > 2) {
+            var axisDir = (step > 8 && tendency_x < 0) ? -1 : 1;
+            var xLong = 220 * axisDir;
+            drawAxis(cx - (150 * axisDir), cy, cx + xLong, cy, "");
+            ctx.save();
+            ctx.fillStyle = "gray"; ctx.font = "bold 14px Arial";
+            ctx.textAlign = (axisDir === 1) ? "left" : "right";
+            ctx.fillText("X", (axisDir === 1) ? cx + xLong + 5 : cx + xLong - 15, cy + 5);
+            ctx.restore();
+            drawAxis(cx, cy + 300, cx, cy - 250, "");
+            ctx.save();
+            ctx.fillStyle = "gray"; ctx.font = "bold 14px Arial";
+            ctx.fillText("Y", cx + 12, cy - 235);
+            ctx.restore();
+        }
+
+        const pxV = PxValue*SCALE, pyV = PyValue*SCALE;
+
+        if(step > 3) {
+            ctx.save(); ctx.translate(cx, cy); ctx.rotate(-alpha);
+            drawVector(0, 0, 0, PValue*SCALE, "#2980b9", "P", 10, -5);
+            ctx.restore();
+        }
+        
+        if(step > 4) {
+            ctx.save();
+            const arcRcm = 55;
+            ctx.beginPath(); ctx.strokeStyle = "#e67e22"; ctx.lineWidth = 2;
+            ctx.arc(cx, cy, arcRcm, Math.PI/2, Math.PI/2 - alpha, true);
+            ctx.stroke();
+            const textAngleCm = (Math.PI/2) - (alpha/2);
+            ctx.fillStyle = "#e67e22"; ctx.font = "bold 18px Arial"; ctx.textAlign = "center";
+            ctx.fillText("α", cx + (arcRcm + 20) * Math.cos(textAngleCm), cy + (arcRcm + 20) * Math.sin(textAngleCm));
+            ctx.restore();
+
+            ctx.save();
+            ctx.strokeStyle = "rgba(0,0,0,0.4)"; ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(cx + pxV, cy); ctx.lineTo(cx + pxV, cy + pyV);
+            ctx.moveTo(cx, cy + pyV); ctx.lineTo(cx + pxV, cy + pyV);
+            ctx.stroke(); ctx.restore();
+            
+            drawVector(cx, cy, pxV, 0, "#c0392b", "Px", 5, 22);
+            drawVector(cx, cy, 0, pyV, "#c0392b", "Py", -25, 5);
+        }
+
+        if(step > 5) drawVector(cx, cy, 0, -PyValue*SCALE, "#27ae60", "N", 10, -5);
+        if(step > 6 && fextVal > 0) drawVector(cx, cy, force_ext_x*SCALE, 0, ORANGE_BRIGHT, "F", 10, -18);
+        if(step > 7 && Math.abs(FrActual) > 0.1) drawVector(cx, cy, FrActual*SCALE, 0, "#8e44ad", "Fr", -15, 22);
+        
+        if (step > 8 && Math.abs(FNetX) > 0.1) {
+            ctx.save();
+            ctx.lineWidth = 4; 
+            drawVector(cx, cy - 45, FNetX * SCALE, 0, "#000000", "Fneta", 5, -10);
+            ctx.restore();
+        }
+        ctx.restore();
+    }
+
+    function animate() {
+        velocity += accelValue * 0.1;
+        offsetAnim += velocity;
+        if (offsetAnim > 350 || offsetAnim < -80) {
+            velocity = 0; cancelAnimationFrame(animationId); return;
+        }
+        draw();
+        animationId = requestAnimationFrame(animate);
+    }
+
+    function drawAxis(x1, y1, x2, y2, lbl) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(0,0,0,0.4)"; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        const angle = Math.atan2(y2 - y1, x2 - x1);
+        ctx.translate(x2, y2); ctx.rotate(angle);
+        ctx.fillStyle = "rgba(0,0,0,0.4)";
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-10, -5); ctx.lineTo(-10, 5); ctx.fill();
+        ctx.restore();
+    }
+
+    function drawVector(ox, oy, vx, vy, col, lbl, dx, dy) {
+        if(Math.abs(vx) < 1 && Math.abs(vy) < 1) return;
+        ctx.save(); ctx.translate(ox, oy);
+        ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(vx, vy); ctx.stroke();
+        const a = Math.atan2(vy, vx);
+        ctx.beginPath(); ctx.moveTo(vx, vy);
+        ctx.lineTo(vx-12*Math.cos(a-0.3), vy-12*Math.sin(a-0.3));
+        ctx.lineTo(vx-12*Math.cos(a+0.3), vy-12*Math.sin(a+0.3)); ctx.fill();
+        const tx = vx + dx, ty = vy + dy;
+        ctx.font = "bold 15px Arial"; ctx.textAlign = "left";
+        ctx.fillText(lbl[0], tx, ty);
+        ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(tx, ty - 16); ctx.lineTo(tx + 10, ty - 16); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(tx + 10, ty - 16); ctx.lineTo(tx + 7, ty - 18); ctx.lineTo(tx + 7, ty - 14); ctx.fill();
+        if(lbl.length > 1) {
+            ctx.font = "bold 10px Arial"; ctx.fillText(lbl.substring(1), tx + 12, ty + 4);
+        }
+        ctx.restore();
+    }
+
+    function handleStep() {
+        if (step <= 9) {
+            document.getElementById('dataAngle').innerText = document.getElementById('valAngle').value;
+            document.getElementById('dataMass').innerText = document.getElementById('valMass').value;
+            document.getElementById('dataMu').innerText = parseFloat(document.getElementById('valMu').value).toFixed(2);
+            document.getElementById('dataFext').innerText = document.getElementById('valFext').value;
+            const ds = document.getElementById('valDirF');
+            document.getElementById('dataDirF').innerText = ds.options[ds.selectedIndex].text;
+            document.getElementById('s' + step).classList.add('active');
+            const textPasos = ["", "Paso 1: Datos iniciales", "Paso 2: Sistema de Referencia", "Paso 3: Representación del Peso", "Paso 4: Descomposición del Peso", "Paso 5: Representar la Normal", "Paso 6: Fuerza Aplicada F", "Paso 7: Fuerza de Rozamiento", "Paso 8: Análisis de Fuerzas", "¡Ver Movimiento!"];
+            document.getElementById('stepDisplay').innerText = textPasos[step];
+            if (step === 9) {
+                animate();
+                document.getElementById('btnAction').innerText = "Simulación Finalizada";
+                document.getElementById('btnAction').disabled = true;
+                document.getElementById('btnAction').style.opacity = "0.5";
+            } else {
+                step++;
+                document.getElementById('btnAction').innerText = textPasos[step];
+            }
+            draw();
+        }
+    }
+
+    function resetSim() {
+        if(animationId) cancelAnimationFrame(animationId);
+        step = 1; offsetAnim = 0; velocity = 0;
+        document.querySelectorAll('.step-card').forEach(c => c.classList.remove('active'));
+        document.getElementById('btnAction').innerText = "Paso 1: Introducir datos";
+        document.getElementById('btnAction').disabled = false;
+        document.getElementById('btnAction').style.opacity = "1";
+        document.getElementById('stepDisplay').innerText = "Paso 0: Preparación";
+        updateValues();
+    }
+    updateValues();
+</script>
+</body>
+</html>
